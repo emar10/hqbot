@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "hqbot"
+version = "0.1.0"
+description = ""
+authors = ["Ethan Martin <ethan@emar10.dev>"]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+"discord.py" = {extras = ["voice"], version = "^1.6.0"}
+PyYAML = "^5.4.1"
+youtube_dl = "^2021.2.10"
+python-language-server = {extras = ["all"], version = "^0.36.2"}
+
+[tool.poetry.dev-dependencies]
+pytest = "^5.2"
+
+[tool.poetry.scripts]
+hqbot = 'hqbot.console:run'
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"

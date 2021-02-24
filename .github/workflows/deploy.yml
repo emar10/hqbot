@@ -23,4 +23,4 @@ jobs:
           context: .
           pull: true
           push: true
-          tags: ghcr.io/emar10/hqbot:${{ github.sha }}
+          tags: ghcr.io/emar10/hqbot:${{ github.sha }},ghcr.io/emar10/hqbot:latest

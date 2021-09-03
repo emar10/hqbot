@@ -1,4 +1,4 @@
 {
   "token": "DISCORD_TOKEN",
-  "extensions": [".cogs.core", ".cogs.music"]
+  "extensions": ["core", "music"]
 }

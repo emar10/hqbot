@@ -1,15 +1,15 @@
-"""HQBot command-line entry point."""
+"""HQBot command line module."""
 
-from .hqbot import HqBot
+from hqbot.hqbot import HqBot
+import logging
+
+
+logger = logging.getLogger(__name__)
 
 
 def run():
-    """Execute the bot."""
+    """Package entry point."""
+    logging.basicConfig(level=logging.DEBUG)
+    logging.getLogger('discord').setLevel(logging.WARNING)
     bot = HqBot()
-
-    try:
-        bot.run()
-    except KeyboardInterrupt:
-        print('Caught SIGINT, going down...')
-        bot.close()
-        exit()
+    bot.run()

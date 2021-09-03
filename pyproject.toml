@@ -7,12 +7,15 @@ authors = ["Ethan Martin <ethan@emar10.dev>"]
 [tool.poetry.dependencies]
 python = "^3.9"
 "discord.py" = {extras = ["voice"], version = "^1.6.0"}
-PyYAML = "^5.4.1"
 youtube_dl = "^2021.2.10"
-python-language-server = {extras = ["all"], version = "^0.36.2"}
+dacite = "^1.6.0"
+discord-py-interactions = "^3.0.2"
 
 [tool.poetry.dev-dependencies]
 pytest = "^5.2"
+pydocstyle = "^6.1.1"
+pycodestyle = "^2.7.0"
+flake8 = "^3.9.2"
 
 [tool.poetry.scripts]
 hqbot = 'hqbot.console:run'

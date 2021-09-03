@@ -1,92 +1,177 @@
-"""HQBot Voice/Music extension."""
+"""Voice/Music extension."""
 
-import asyncio
-import youtube_dl
+from collections import deque
+from dataclasses import dataclass
+import logging
+from typing import Any, Optional
+
 import discord
-
-from ..hqbot import HqBot
+from discord.voice_client import VoiceClient
 from discord.ext import commands
+from discord_slash import cog_ext, SlashContext
+from discord_slash.utils.manage_commands import create_option
+import youtube_dl
+
+from hqbot.hqbot import HqBot
 
 
-class YTDLSource(discord.FFmpegOpusAudio):
-    """An audio source utilizing a youtube-dl stream."""
+logger = logging.getLogger(__name__)
 
-    ytdl_format_options = {
-        'format': 'bestaudio/best',
-        'outtmpl': '/tmp/hqbot/%(extractor)s-%(id)s-%(title)s.%(ext)s',
-        'restrictfilenames': True,
-        'noplaylist': True,
-        'nocheckcertificate': True,
-        'ignoreerrors': False,
-        'logtostderr': False,
-        'quiet': True,
-        'no_warnings': True,
-        'default_search': 'auto',
-        'source_address': '0.0.0.0'
-    }
 
-    ffmpeg_options = {
-        'options': '-vn'
-    }
+class MusicError(Exception):
+    """Exception for the Music cog."""
 
-    ytdl = youtube_dl.YoutubeDL(ytdl_format_options)
 
-    def __init__(self, data, *args, **kwargs):
-        """Source initialization."""
-        super().__init__(*args, **kwargs)
+@dataclass
+class Track:
+    """A track that can be played by the bot."""
 
-        self.data = data
+    filename: str
+    title: str
 
-        self.title = data.get('title')
-        self.url = data.get('url')
 
-    @classmethod
-    async def from_url(cls, url, *, loop=None, stream=False):
-        """Create and return a new YTDLSource."""
-        loop = loop or asyncio.get_event_loop()
-        data = await loop.run_in_executor(None, lambda: cls.ytdl.extract_info(
-            url, download=not stream))
+class GuildPlayer:
+    """Player for a specific Guild."""
 
-        if 'entries' in data:
-            data = data['entries'][0]
+    guild: discord.Guild
+    track_queue: deque[Track]
+    track_current: Optional[Track]
+    voice: Optional[VoiceClient]
 
-        filename = data['url'] if stream else cls.ytdl.prepare_filename(data)
-        return cls(data, filename, **cls.ffmpeg_options)
+    def __init__(self, guild: discord.Guild):
+        """Initialize the player instance."""
+        self.guild = guild
+        self.track_queue = deque()
+        self.track_current = None
+        self.voice = None
+
+    async def connect(self, channel: discord.VoiceChannel):
+        """Connect to the specified voice channel."""
+        logger.debug(f'Joining channel \'{channel}\'...')
+        self.voice = await channel.connect()
+
+    async def auto_connect(self, member: discord.Member):
+        """Automatically connect to the specified user's channel."""
+        logger.debug(f'Joining channel of \'{member}\'...')
+        await self.connect(member.voice.channel)
+
+    async def disconnect(self):
+        """Disconnect from the current voice channel."""
+        self.track_queue.clear()
+        self.track_current = None
+
+        if self.voice:
+            await self.voice.disconnect()
+            self.voice = None
+
+    def add_track(self, track: Track,
+                  requester: Optional[discord.Member] = None):
+        """Add a track to the queue. Begins playing if possible."""
+        logger.debug(f'Adding track with URL \'{track.filename}\'.')
+        self.track_queue.append(track)
+
+        if self.voice and not self.voice.is_playing():
+            logger.debug('Auto-starting playback...')
+            self.pop_track()
+
+    def pop_track(self):
+        """Play the next track in the queue."""
+        if len(self.track_queue) > 0:
+            self.track_current = self.track_queue.popleft()
+            source = discord.FFmpegOpusAudio(self.track_current.filename)
+
+            def play_next(_: Exception):
+                self.pop_track()
+
+            self.voice.play(source, after=play_next)
+        else:
+            self.voice.loop.create_task(self.disconnect())
 
 
 class Music(commands.Cog):
-    """HQBot Music cog."""
+    """Cog of Music-related functionality."""
 
-    def __init__(self, bot):
-        """Cog initialization."""
+    bot: HqBot
+    players: dict[discord.Guild, GuildPlayer]
+    ytdl: youtube_dl.YoutubeDL
+    ytdl_options: dict[str, Any] = {
+        'format': 'bestaudio/best',
+        'default_search': 'auto'
+    }
+
+    def __init__(self, bot: HqBot):
+        """Initialize the cog."""
         self.bot = bot
+        self.players = dict()
+        self.ytdl = youtube_dl.YoutubeDL(self.ytdl_options)
 
-    @commands.command()
-    async def play(self, ctx, *, url):
-        """Play music from the provided link."""
-        async with ctx.typing():
-            player = await YTDLSource.from_url(url, loop=self.bot.loop,
-                                               stream=True)
-            ctx.voice_client.play(player)
+    def get_player(self, guild: discord.Guild) -> GuildPlayer:
+        """Get the GuildPlayer for the specified Guild."""
+        if guild not in self.players:
+            self.players[guild] = GuildPlayer(guild)
+            logger.info(f'Created new player for guild \'{guild}\'.')
 
-        await ctx.send(f'Now playing: {player.title}')
+        return self.players[guild]
 
-    @commands.command()
-    async def stop(self, ctx):
-        """Stop the currently playing song."""
-        await ctx.voice_client.disconnect()
+    @cog_ext.cog_slash(options=[
+        create_option(
+            name='query',
+            description='URL or search term.',
+            option_type=3,
+            required=True
+        )
+    ])
+    async def play(self, ctx: SlashContext, query: str):
+        """Play music from the provided link or search query."""
+        logger.debug(f'{ctx.author} invoked Play with query \'{query}\'')
 
-    @play.before_invoke
-    async def ensure_voice(self, ctx):
-        """Attempt to automatically join a voice channel if not active."""
-        if ctx.voice_client is None:
+        if not (query.startswith('https://') or query.startswith('http://')):
+            logger.debug('Interpreting query as a search.')
+            query = f'ytsearch:{query}'
+        result = self.ytdl.extract_info(query, download=False)
+
+        if 'entries' in result:
+            logger.debug('YTDL result appears to be a playlist, using first '
+                         'result.')
+            result = result['entries'][0]
+        track = Track(result['url'], result['title'])
+
+        player = self.get_player(ctx.guild)
+        if not player.voice:
             if ctx.author.voice:
-                await ctx.author.voice.channel.connect()
+                await player.auto_connect(ctx.author)
             else:
-                await ctx.send('You are not connected to a voice channel!')
-                raise commands.CommandError('Author not connected to voice.')
+                await ctx.reply('You are not in a voice channel!')
+                return
+        player.add_track(track)
+
+        await ctx.reply(f'Added *{track.title}* to the queue.')
+
+    @cog_ext.cog_slash()
+    async def skip(self, ctx: SlashContext):
+        """Skip the currently playing track."""
+        logger.debug(f'{ctx.author} invoked Skip.')
+
+        player = self.get_player(ctx.guild)
+        if not player.voice:
+            await ctx.reply('Nothing is playing right now!')
+        else:
+            player.voice.stop()
+            await ctx.reply('Skipped the current track.')
+
+    @cog_ext.cog_slash()
+    async def stop(self, ctx: SlashContext):
+        """Stop playback and disconnect from the current voice channel."""
+        logger.debug(f'{ctx.author} invoked Stop.')
+
+        player = self.get_player(ctx.guild)
+        if not player.voice:
+            await ctx.reply('Nothing is playing right now!')
+        else:
+            await player.disconnect()
+            await ctx.reply('Stopped playback.')
 
 
 def setup(bot: HqBot):
-    """Initialize the Extension."""
+    """Initialize the extension."""
     bot.add_cog(Music(bot))

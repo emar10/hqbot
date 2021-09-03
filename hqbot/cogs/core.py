@@ -1,21 +1,33 @@
-"""HQBot Core commands extension."""
+"""Core commands extension."""
+
+import logging
 
 from discord.ext import commands
+from discord_slash import cog_ext, SlashContext
+
+from hqbot.hqbot import HqBot
+
+
+logger = logging.getLogger(__name__)
 
 
 class Core(commands.Cog):
-    """HQBot Core commands Cog."""
+    """Core command cog."""
 
-    def __init__(self, bot):
-        """Initialize Cog."""
+    bot: HqBot
+
+    def __init__(self, bot: HqBot):
+        """Initialize the cog."""
         self.bot = bot
 
-    @commands.command()
-    async def ping(self, ctx):
-        """Test if the bot works, simply responds with 'Pong!'."""
+    @cog_ext.cog_slash()
+    async def ping(self, ctx: SlashContext):
+        """Test operability with a ping."""
+        logger.debug(f'{ctx.author} used Ping in {ctx.guild}.')
         await ctx.send('Pong!')
 
 
-def setup(bot):
-    """Initialize the Extension."""
+def setup(bot: HqBot):
+    """Initialize the extension."""
     bot.add_cog(Core(bot))
+    logger.info('Core cog initialized and added.')

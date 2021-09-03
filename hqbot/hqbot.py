@@ -1,67 +1,44 @@
-"""A general-purpose bot for Discord."""
+"""HQBot bot class module."""
 
-import platform
-import sys
+import logging
+
 import discord
-import yaml
-import os
+from discord_slash import SlashCommand
 from discord.ext import commands
-from importlib.util import resolve_name
 
+from hqbot.config import Config, load_config
 
-def get_default_config() -> str:
-    """Determine the appropriate default configuration file."""
-    plat = platform.system()
-    paths = list()
-
-    if plat == 'Linux':
-        paths.append('/etc/hqbot')
-    elif plat == 'Windows':
-        paths.append('/Program Data/hqbot')
-
-    paths.append('.')
-
-    for path in paths:
-        if os.path.isfile(f'{path}/hqbot.json'):
-            return f'{path}/hqbot.json'
-
-    return None
-
-
-def load_config(path: str = None):
-    """Load the provided configuration file or load the default config."""
-    path = path or get_default_config()
-    if path is None:
-        return dict()
-
-    config_file = open(path, 'r')
-    config = yaml.safe_load(config_file)
-
-    return config
+logger = logging.getLogger(__name__)
 
 
 class HqBot(commands.Bot):
-    """Main HQBot driver class."""
+    """Main bot class."""
+
+    config: Config
+    slash: SlashCommand
 
     def __init__(self):
         """Initialize the bot."""
+        logger.info('Initializing HqBot...')
+
         self.config = load_config()
-        if 'token' not in self.config:
-            print('Config does not include a token, cannot proceed!',
-                  file=sys.stderr)
-            raise Exception
 
-        intents = discord.Intents.default()
-        # intents.members = True
-        super().__init__(command_prefix='!', intents=intents)
+        logger.debug('Doing discord.py init...')
+        super().__init__(command_prefix='/', help_command=None,
+                         intents=discord.Intents.default())
 
-        for ext in self.config['extensions']:
-            try:
-                self.load_extension(resolve_name(ext, __package__))
-            except Exception as e:
-                print(f'Failed to load extension \'{ext}\'.', file=sys.stderr)
-                raise e
+        logger.debug('Doing discord-py-interactions init...')
+        self.slash = SlashCommand(self, sync_commands=True,
+                                  debug_guild=self.config.test_guild)
+
+        logger.info('Loading extensions...')
+        for ext in self.config.extensions:
+            logger.debug(f'Loading extension \'{ext}\'...')
+            self.load_extension(f'{__package__}.cogs.{ext}')
+        logger.debug('Done loading extensions.')
+
+        logger.info('Done initializing HqBot.')
 
     def run(self):
         """Run the bot."""
-        super().run(self.config['token'], reconnect=True)
+        super().run(self.config.token)

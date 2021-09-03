@@ -96,7 +96,8 @@ class Music(commands.Cog):
     ytdl: youtube_dl.YoutubeDL
     ytdl_options: dict[str, Any] = {
         'format': 'bestaudio/best',
-        'default_search': 'auto'
+        'default_search': 'auto',
+        'source_address': '0.0.0.0'
     }
 
     def __init__(self, bot: HqBot):

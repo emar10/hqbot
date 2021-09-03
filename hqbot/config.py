@@ -62,5 +62,5 @@ def load_config() -> Config:
                             f'{e}')
             raise ConfigError
 
-        logger.critical('Could not find any configuration file!')
-        raise ConfigError
+    logger.critical('Could not find any configuration file!')
+    raise ConfigError
